@@ -5,12 +5,13 @@ import StudyRoomListPage from '@pages/StudyRoomListPage';
 import MainPage from '@pages/MainPage';
 import InitPage from '@pages/InitPage';
 import StudyRoomPage from '@pages/StudyRoomPage';
+import TestSFUClient from '@pages/TestSFUClient';
 
 export default function Router() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<InitPage />} />
+        <Route path="/" element={<TestSFUClient />} />
         <Route path="/home" element={<MainPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />

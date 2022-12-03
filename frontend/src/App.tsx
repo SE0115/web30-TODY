@@ -6,18 +6,18 @@ import silentLoginRequest from './axios/requests/silentLoginRequest';
 import Router from './routes/Router';
 
 function App() {
-  const [requestSilentLogin, loading, err, silentLoginData] =
-    useAxios(silentLoginRequest);
-  const setUser = useSetRecoilState(userState);
+  // const [requestSilentLogin, loading, err, silentLoginData] =
+  //   useAxios(silentLoginRequest);
+  // const setUser = useSetRecoilState(userState);
 
-  useEffect(() => {
-    if (silentLoginData === null) return;
-    setUser(silentLoginData);
-  }, [setUser, silentLoginData]);
+  // useEffect(() => {
+  //   if (silentLoginData === null) return;
+  //   setUser(silentLoginData);
+  // }, [setUser, silentLoginData]);
 
-  useEffect(() => {
-    requestSilentLogin();
-  }, [requestSilentLogin]);
+  // useEffect(() => {
+  //   requestSilentLogin();
+  // }, [requestSilentLogin]);
 
   return <Router />;
 }

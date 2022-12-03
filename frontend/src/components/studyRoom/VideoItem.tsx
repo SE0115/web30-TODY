@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react';
 import styled from 'styled-components';
 
 const VideoLayout = styled.div``;
@@ -10,13 +11,17 @@ const Video = styled.video`
 `;
 
 interface Props {
-  ref: any;
+  stream: any;
 }
 
-export default function VideoItem({ ref }: Props) {
+export default function VideoItem({ stream }: Props) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
   return (
     <VideoLayout>
-      <Video ref={ref} />
+      <Video ref={ref} autoPlay />
     </VideoLayout>
   );
 }
