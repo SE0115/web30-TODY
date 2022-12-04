@@ -8,30 +8,57 @@ import {
 import { Server, Socket } from 'socket.io';
 import * as wrtc from 'wrtc';
 
+const PCConfig = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+};
+
 let receiverPeerConnectionInfo = {};
 let senderPeerConnectionInfo = {};
 const userInfo = {};
 const roomInfoPerSocket = {};
 
+function isIncluded(userList, socketId) {
+  return userList.some((user) => user.socketId === socketId);
+}
+
+export function deleteUser(toDeleleteUserSocketId, roomId) {
+  if (!userInfo[roomId]) return;
+
+  userInfo[roomId] = userInfo[roomId].filter(
+    (user) => user.socketId !== toDeleleteUserSocketId,
+  );
+  if (!userInfo[roomId].length) delete userInfo[roomId];
+  delete roomInfoPerSocket[toDeleleteUserSocketId];
+}
+
 function getOtherUserListOfRoom(userSocketId, roomId) {
   let userList = [];
-
   if (!userInfo[roomId]) return userList;
 
   userList = userInfo[roomId]
     .filter((user) => user.socketId !== userSocketId)
     .map((user) => ({ socketId: user.socketId }));
+
+  return userList;
 }
 
 @WebSocketGateway({ cors: true })
 export class SFUServerGateway {
   @WebSocketServer() server: Server;
 
-  async handleConnection(@ConnectedSocket() client: Socket) {
+  handleConnection(@ConnectedSocket() client: Socket) {
     console.log(`connected: ${client.id}`);
   }
 
-  // [user -> server]: offer 요청
+  handleDisconnect(@ConnectedSocket() client: Socket) {
+    console.log('disconnected', client.id);
+    const roomId = roomInfoPerSocket[client.id];
+    deleteUser(client.id, roomId);
+    closeReceivePeerConnection(client.id);
+    closeSendPeerConnection(client.id);
+    client.broadcast.to(roomId).emit('userLeftRoom', { socketId: client.id });
+  }
+
   @SubscribeMessage('senderOffer')
   async handleSenderOffer(
     @ConnectedSocket() client: Socket,
@@ -42,7 +69,11 @@ export class SFUServerGateway {
 
     const pc = createReceiverPeerConnection(senderSocketId, client, roomId);
     await pc.setRemoteDescription(senderSdp);
-    const sdp = await pc.createAnswer();
+    // const sdp = await pc.createAnswer();
+    const sdp = await pc.createAnswer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await pc.setLocalDescription(sdp);
 
     client.join(roomId);
@@ -85,19 +116,27 @@ export class SFUServerGateway {
     );
     await pc.setRemoteDescription(receiverSdp);
     const sdp = await pc.createAnswer();
+    // const sdp = await pc.createAnswer({
+    //   offerToReceiveAudio: false,
+    //   offerToReceiveVideo: false,
+    // });
     await pc.setLocalDescription(sdp);
     this.server.to(receiverSocketId).emit('getReceiverAnswer', {
       senderSdp: sdp,
       senderSocketId: senderSocketId,
     });
   }
+  @SubscribeMessage('receiverCandidate')
+  async handleReceiverCandidate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: any,
+  ) {
+    const senderPC = senderPeerConnectionInfo[data.senderSocketId].filter(
+      (sPC) => sPC.socketId === data.receiverSocketId,
+    )[0];
+    await senderPC.pc.addIceCandidate(new wrtc.RTCIceCandidate(data.candidate));
+  }
 }
-
-const PCConfig = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-};
-
-const isIncluded = (list, id) => list.some((item) => item.socketId === id);
 
 function createReceiverPeerConnection(senderSocketId, socket, roomId) {
   const pc = new wrtc.RTCPeerConnection(PCConfig);
@@ -148,7 +187,7 @@ function createSenderPeerConnection(
   roomId,
 ) {
   const pc = new wrtc.RTCPeerConnection(PCConfig);
-  console.log('create senderPC');
+  console.log('create senderPC', senderSocketId, '->', receiverSocketId);
   if (senderPeerConnectionInfo[senderSocketId]) {
     senderPeerConnectionInfo[senderSocketId].filter(
       (user) => user.socketId !== receiverSocketId,
@@ -181,4 +220,34 @@ function createSenderPeerConnection(
   });
 
   return pc;
+}
+
+function closeReceivePeerConnection(toCloseSocketId) {
+  if (!receiverPeerConnectionInfo[toCloseSocketId]) return;
+
+  receiverPeerConnectionInfo[toCloseSocketId].close();
+  delete receiverPeerConnectionInfo[toCloseSocketId];
+}
+
+function closeSendPeerConnection(toCloseSocketId) {
+  if (!senderPeerConnectionInfo[toCloseSocketId]) return;
+
+  senderPeerConnectionInfo[toCloseSocketId].forEach((senderPC) => {
+    senderPC.pc.close();
+
+    if (!senderPeerConnectionInfo[senderPC.socektId]) return;
+
+    senderPeerConnectionInfo[senderPC.socektId] = senderPeerConnectionInfo[
+      senderPC.socektId
+    ].redecue((filtered, sPC) => {
+      if (sPC.socketId === toCloseSocketId) {
+        sPC.pc.close();
+        return;
+      }
+      filtered.push(sPC);
+      return filtered;
+    }, []);
+  });
+
+  delete senderPeerConnectionInfo[toCloseSocketId];
 }

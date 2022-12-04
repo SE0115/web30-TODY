@@ -19,6 +19,7 @@ export default function VideoItem({ stream }: Props) {
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream;
   }, [stream]);
+
   return (
     <VideoLayout>
       <Video ref={ref} autoPlay />

@@ -4,27 +4,22 @@ import styled from 'styled-components';
 import VideoItem from '@components/studyRoom/VideoItem';
 
 const Video = styled.video`
-  width: 240;
-  height: 240;
-  margin: 5;
-  background-color: 'black';
+  width: 405px;
+  height: 308px;
+  border-radius: 12px;
+  background-color: var(--guideText);
 `;
 
 const PCConfig = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 
-// let sendPC: RTCPeerConnection;
-// let receivePCs: any;
-
-// const SFU_SERVER_URL = 'http://localhost:8080';
 const socket = io(process.env.REACT_APP_SOCKET_URL!, {
   autoConnect: false,
 });
 
 export default function TestSFUClient() {
   let sendPC: RTCPeerConnection | null = null;
-  // let receivePCList: { [socketId: string]: RTCPeerConnection } = {};
   const receivePCListRef = useRef<{ [socketId: string]: RTCPeerConnection }>(
     {},
   );
@@ -51,6 +46,10 @@ export default function TestSFUClient() {
   const createSenderOffer = useCallback(async () => {
     if (!sendPC) return;
     const sdp = await sendPC.createOffer();
+    // const sdp = await sendPC.createOffer({
+    //   offerToReceiveAudio: false,
+    //   offerToReceiveVideo: false,
+    // });
     console.log('create sender offer');
     await sendPC.setLocalDescription(sdp);
 
@@ -88,7 +87,11 @@ export default function TestSFUClient() {
 
   const createReceiverOffer = useCallback(
     async (pc: any, senderSocketId: any) => {
-      const sdp = await pc.createOffer();
+      // const sdp = await pc.createOffer();
+      const sdp = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
       console.log('create receiver offer');
       await pc.setLocalDescription(sdp);
 
@@ -104,7 +107,7 @@ export default function TestSFUClient() {
   );
 
   const createReceivePeerConnection = useCallback((senderSocketId: string) => {
-    console.log(`${senderSocketId} user entered`);
+    console.log(`create receivePeer: ${senderSocketId} user entered`);
     const pc = new RTCPeerConnection(PCConfig);
 
     receivePCListRef.current = {
@@ -117,15 +120,15 @@ export default function TestSFUClient() {
       console.log('receiver PC onicecandidate');
       socket.emit('receiverCandidate', {
         candidate: e.candidate,
-        receiverSocketID: socket.id,
-        senderSocketID: senderSocketId,
+        receiverSocketId: socket.id,
+        senderSocketId,
       });
     };
 
     pc.ontrack = (e) => {
       console.log('ontrack success');
-      setUserList((oldUsers) =>
-        oldUsers
+      setUserList((prevUserList) =>
+        prevUserList
           .filter((user) => user.socketId !== senderSocketId)
           .concat({
             socketId: senderSocketId,
@@ -134,13 +137,15 @@ export default function TestSFUClient() {
       );
     };
 
-    // return pc;
     createReceiverOffer(pc, senderSocketId);
   }, []);
 
-  useEffect(() => {
-    console.log(userList);
-  }, [userList]);
+  const closeReceiverPeerConnection = (toCloseSocketId: string) => {
+    if (!receivePCListRef.current[toCloseSocketId]) return;
+    receivePCListRef.current[toCloseSocketId].close();
+    delete receivePCListRef.current[toCloseSocketId];
+  };
+
   useEffect(() => {
     socket.connect();
 
@@ -152,6 +157,13 @@ export default function TestSFUClient() {
     socket.on('enterNewUser', (data) => {
       console.log('enter new user');
       createReceivePeerConnection(data.id);
+    });
+
+    socket.on('userLeftRoom', (data) => {
+      closeReceiverPeerConnection(data.socketId);
+      setUserList((prevUserList) =>
+        prevUserList.filter((user) => user.socketId !== data.socketId),
+      );
     });
 
     socket.on('getSenderAnswer', async (data) => {
@@ -177,7 +189,6 @@ export default function TestSFUClient() {
       const { senderSocketId, senderSdp } = data;
       console.log(`get ${senderSocketId} receiver answer`);
       const pc = receivePCListRef.current[senderSocketId];
-      console.log('receviePC', pc);
       if (!pc) return;
       await pc.setRemoteDescription(senderSdp);
     });
@@ -191,16 +202,26 @@ export default function TestSFUClient() {
     });
 
     socket.on('allUserList', (data) => {
-      console.log('allUserList');
+      console.log('allUserList', data.userList);
       data.userList?.forEach((user: any) =>
         createReceivePeerConnection(user.socketId),
       );
     });
+
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+      if (sendPC) {
+        sendPC.close();
+      }
+      userList.forEach((user) => closeReceiverPeerConnection(user.socketId));
+    };
   }, []);
 
   return (
     <div>
-      <video muted ref={localVideoRef} autoPlay />
+      <Video muted ref={localVideoRef} autoPlay />
       {userList.map((user) => (
         <VideoItem key={user.socketId} stream={user.stream} />
       ))}
